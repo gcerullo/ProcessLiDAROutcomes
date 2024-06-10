@@ -149,6 +149,7 @@ df %>%  group_by(habitat, height_filt) %>%
         legend.position = "bottom")
 
 
+
 #save outputs ####
 write.csv(df, "Outputs/rawMegatreesPerHa.csv")
 write.csv(result_df, "Outputs/ProportionalCanopyHeightByHabitat.csv")
