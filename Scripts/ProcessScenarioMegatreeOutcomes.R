@@ -24,7 +24,7 @@ megaTreeThreshold <- 50
 #----------------read in scenarios -------------------------------
 #NEEDS TO BE UPDATED WITH CORRECT YIELDS !!!!!!!!!
 #yield matched scenarios where 1/30th of plantation conversion happens annually
-scenarios <- readRDS("Inputs/allScenariosStaggered.rds")
+scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
 scenario_composition <- rbindlist(scenarios, use.names=TRUE)
 
 #read in hab carbon through time - this dataframe allows us to add a temporal gradient
