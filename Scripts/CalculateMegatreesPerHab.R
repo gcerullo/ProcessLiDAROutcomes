@@ -134,10 +134,10 @@ df %>%  group_by(habitat, height_filt) %>%
   
   ggplot() +
   #plt raw data
-  geom_point(data = df, aes(x = habitat, y = propBigTrees), alpha = 0.1, colour = "grey90", fill = "transparent",
-             position = position_jitter(width = 0.1, height = 0.1),  size =1) + 
+  geom_point(data = df, aes(x = habitat, y = propBigTrees), alpha = 0.1, colour = "grey90", fill = "transparent")+#,
+            # position = position_jitter(width = 0.1, height = 0.1),  size =1) + 
   #plt std error
-  geom_errorbar(data = result_df, aes(x = habitat, y = meanProp, ymin = minProp_se, ymax = maxProp_se, colour = habitat), width = 0.2) +
+  geom_errorbar(data = result_df, aes(x = habitat, y = meanProp, ymin = minProp_se, ymax = maxProp_se, colour = habitat)) +
   #plt mean
   geom_point(data = result_df, aes(habitat, meanProp, colour= habitat), size =2)+
   #  ylim(0,1)+
