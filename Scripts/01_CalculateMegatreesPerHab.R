@@ -43,7 +43,6 @@ plot(cloud)
 primary[cloud_ext] <- NA
 plot(primary)
 
-
 #assign each 1m raster cell to the ID of a hexagon grid ####
 
 #ONLY NEED TO RUN ONCE: 
