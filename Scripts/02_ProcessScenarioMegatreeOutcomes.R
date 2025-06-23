@@ -22,7 +22,6 @@ megaTreeThreshold <- 50
 
 #Read in Data ####
 #----------------read in scenarios -------------------------------
-#NEEDS TO BE UPDATED WITH CORRECT YIELDS !!!!!!!!!
 #yield matched scenarios where 1/30th of plantation conversion happens annually
 scenarios <- readRDS("Inputs/MasterAllScenarios.rds")
 scenario_composition <- rbindlist(scenarios, use.names=TRUE)
@@ -61,6 +60,7 @@ test_megatrees <- megatrees %>% group_by(habitat) %>%
 #fit a binomial regression that estimates the proportion of big tree cells (successes) per number of 
 #sampled LiDAR cells
 y= cbind(megatrees$bigTrees, megatrees$num_cells-megatrees$bigTrees)
+
 #estimate the proportion of cells that are MEGATREES for of a given habitat type 
 #megatreeModel <-  glm(y ~ habitat-1, family = "binomial", data = megatrees)
 #summary(megatreeModel)
