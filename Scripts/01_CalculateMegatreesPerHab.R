@@ -128,7 +128,7 @@ result_df <- df %>%
 
 
 #plot proportion of canopy over height threshold####
-
+#decide if I want to filter a given habitat height
 df %>%  group_by(habitat, height_filt) %>% 
   
   ggplot() +
@@ -146,8 +146,6 @@ df %>%  group_by(habitat, height_filt) %>%
   theme_pubr(base_size = 18)+
   theme(axis.text.x = element_blank(), 
         legend.position = "bottom")
-
-
 
 #save outputs ####
 write.csv(df, "Outputs/rawMegatreesPerHa.csv")
