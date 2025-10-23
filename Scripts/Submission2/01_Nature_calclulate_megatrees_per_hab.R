@@ -113,7 +113,7 @@ df <- bind_rows(df_list)
 df$habitat <- factor(df$habitat, levels = c("primary", "once-logged", "restored", "twice-logged"))
 
 #filer only hexagons for which most 1m cells were captured
-df <- df %>% filter(num_cells > 8650)
+df <- df %>% filter(num_cells > 6000)
 
 # #prepare to fit a beta regression (which can't handle exact 0-1 values, so transform as recommended from Smithson & Verkuilen, 2006
 range(df$propBigTrees)
@@ -134,7 +134,7 @@ df <- df %>%
 
 #### Fit Bayesian beta regression model ####
 bayes_model <- brm(
-  formula = prop_adj ~ habitat * height_filt +(1|ID),
+  formula = prop_adj ~ habitat * height_filt, # +(1|ID),
   data = df,
   family = Beta(),
   prior = c(
@@ -144,16 +144,18 @@ bayes_model <- brm(
   chains = 4,
   iter = 4000,
   cores = 4,
-  seed = 123
+  seed = 123,
+  backend = "cmdstanr"
 )
 
 # Save model
-saveRDS(bayes_model, "Outputs/bayesian_megatree_model.rds")
+saveRDS(bayes_model, "Outputs/bayesian_megatree_model_22_10.rds")
 saveRDS(bayes_model_re, "Outputs/bayesian_megatree_model_with_site_random_effect.rds")
 
 #read in models 
-bayes_model <- readRDS("Outputs/bayesian_megatree_model.rds")
-bayes_model_re <- readRDS("Outputs/bayesian_megatree_model_with_site_random_effect.rds")
+#bayes_model <- readRDS("Outputs/bayesian_megatree_model.rds")
+bayes_model <- readRDS("Outputs/bayesian_megatree_model_22_10.rds")
+#bayes_model <- readRDS("Outputs/bayesian_megatree_model_with_site_random_effect.rds")
 
 #### Posterior Predictions ####
 # Create new data for prediction
@@ -245,13 +247,14 @@ epreds_long %>%
 
 #### Plot Bayesian Results ####
 #decide if I want to filter a give canopy height only
-ggplot(pred_summary, aes(x = habitat, y = mean, fill = habitat)) +
+plot<-pred_summary %>% 
+  filter(height_filt %in% c(45, 50)) %>% 
+  ggplot( aes(x = habitat, y = mean, fill = habitat)) +
   geom_col(position = position_dodge(), width = 0.7) +
   geom_errorbar(aes(ymin = lower, ymax = upper),
                 width = 0.2, position = position_dodge(0.7)) +
   facet_wrap(~ height_filt, scales = "free_y") +
   labs(
-    title = "Bayesian Estimate of Megatree Proportions",
     y = "Proportion of canopy > height threshold",
     x = "Habitat type"
   ) +
@@ -259,7 +262,7 @@ ggplot(pred_summary, aes(x = habitat, y = mean, fill = habitat)) +
   theme_pubr(base_size = 16) +
   theme(legend.position = "bottom")
 
-#NEED TO SELECT BETWEEN MODEL WITH AND WITHOUT ID RANDOM EFFECT
+plot
 #### Save Outputs ####
 saveRDS(epreds_long, "Outputs/megatrees_draws_per_hab.rds")
 
