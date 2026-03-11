@@ -264,5 +264,15 @@ plot<-pred_summary %>%
 
 plot
 #### Save Outputs ####
+
 saveRDS(epreds_long, "Outputs/megatrees_draws_per_hab.rds")
+
+width <-11
+height <- 6
+
+ggsave(plot, 
+       filename = "Figures/megatrees_by_height.pdf",
+       width =  width, #in pixels 
+       height = height,
+       units = "in")
 
