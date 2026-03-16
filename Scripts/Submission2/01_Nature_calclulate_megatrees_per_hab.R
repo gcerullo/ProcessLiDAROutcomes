@@ -249,7 +249,9 @@ epreds_long %>%
 #decide if I want to filter a give canopy height only
 plot<-pred_summary %>% 
   filter(height_filt %in% c(45, 50)) %>% 
-  ggplot( aes(x = habitat, y = mean, fill = habitat)) +
+  ggplot( aes(x = habitat, y = mean)) +
+  geom_col(fill = "grey60", width = 0.7) +
+  
   geom_col(position = position_dodge(), width = 0.7) +
   geom_errorbar(aes(ymin = lower, ymax = upper),
                 width = 0.2, position = position_dodge(0.7)) +
@@ -258,7 +260,7 @@ plot<-pred_summary %>%
     y = "Proportion of canopy > height threshold",
     x = "Habitat type"
   ) +
-  scale_fill_viridis_d(option = "D", end = 0.85) +
+  #scale_fill_viridis_d(option = "D", end = 0.85) +
   theme_pubr(base_size = 16) +
   theme(legend.position = "bottom")
 
