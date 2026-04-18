@@ -72,8 +72,10 @@ summarize_megatrees <- function(dt, max_h) {
 process_one_threshold <- function(max_h) {
   message("Processing scenarios for threshold ", max_h, " m")
 
+  draws_file <- paste0("nature_megatrees_zibb_", max_h, "m_habitat_draws.rds")
+
   megatrees <- readRDS(
-    nr2_output_path(paste0("nature_megatrees_habitat_draws_", max_h, "m.rds"))
+    nr2_output_path(draws_file)
   ) %>%
     rename(
       prop_megatrees = estimate,

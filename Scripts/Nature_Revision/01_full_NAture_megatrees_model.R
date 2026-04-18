@@ -12,6 +12,8 @@ library(bayesplot)
 # -----------------------------
 set.seed(123)
 height_thresholds <- c(45, 50, 55)
+run_full_refits <- FALSE #reruns entire model
+run_selected_existing_model_check <- TRUE
 min_cells_filter <- 6000
 
 fit_chains <- 4
@@ -63,6 +65,33 @@ build_threshold_data <- function(max_h) {
     )
 }
 
+prepare_model_data <- function(dat, max_h = NULL) {
+  dat <- tibble::as_tibble(dat)
+
+  if (!"propBigTrees" %in% names(dat) && all(c("bigTrees", "num_cells") %in% names(dat))) {
+    dat <- dat %>% mutate(propBigTrees = bigTrees / num_cells)
+  }
+
+  if (!"prop_raw" %in% names(dat) && "propBigTrees" %in% names(dat)) {
+    dat <- dat %>% mutate(prop_raw = pmin(pmax(propBigTrees, 0), 1))
+  }
+
+  if (!"prop_adj" %in% names(dat) && "propBigTrees" %in% names(dat)) {
+    dat <- dat %>% mutate(prop_adj = pmin(pmax(propBigTrees, 1e-6), 1 - 1e-6))
+  }
+
+  if (!"height_filt" %in% names(dat) && !is.null(max_h)) {
+    dat <- dat %>% mutate(height_filt = max_h)
+  }
+
+  if ("habitat" %in% names(dat)) {
+    dat <- dat %>%
+      mutate(habitat = factor(habitat, levels = c("primary", "once-logged", "restored", "twice-logged")))
+  }
+
+  dat
+}
+
 priors_zibb <- c(
   prior(normal(0, 2), class = "b"),
   prior(normal(0, 3), class = "Intercept"),
@@ -76,8 +105,9 @@ priors_zibb <- c(
 # PPC and fit summary helpers
 # -----------------------------
 make_ppc_pdf <- function(model_obj, model_name, dat) {
+  dat <- prepare_model_data(dat)
   pdf_path <- file.path(nr2_config$figures_dir, paste0("ppc_by_habitat_", model_name, ".pdf"))
-  yrep_counts <- posterior_predict(model_obj, newdata = dat, ndraws = ppc_draws)
+  yrep_counts <- posterior_predict(model_obj, newdata = dat, ndraws = ppc_draws, re_formula = NA)
   yrep_prop <- sweep(yrep_counts, 2, dat$num_cells, "/")
 
   pdf(pdf_path, width = 8, height = 6)
@@ -89,7 +119,7 @@ make_ppc_pdf <- function(model_obj, model_name, dat) {
     if (length(keep) < 5) next
     yrep_ok <- yrep_h[keep, , drop = FALSE]
     yrep_show <- yrep_ok[seq_len(min(50, nrow(yrep_ok))), , drop = FALSE]
-    y_obs <- dat$prop_raw[idx]
+    y_obs <- as.numeric(dat$prop_raw[idx])
 
     p1 <- bayesplot::ppc_dens_overlay(y = y_obs, yrep = yrep_show)
     print(p1 + ggplot2::ggtitle(paste(model_name, "- Density overlay -", h)))
@@ -108,13 +138,14 @@ make_ppc_pdf <- function(model_obj, model_name, dat) {
 }
 
 make_fit_summary <- function(model_obj, model_name, dat) {
-  yrep_counts <- posterior_predict(model_obj, newdata = dat)
+  dat <- prepare_model_data(dat)
+  yrep_counts <- posterior_predict(model_obj, newdata = dat, re_formula = NA)
   yrep_prop <- sweep(yrep_counts, 2, dat$num_cells, "/")
   idx_by_habitat <- split(seq_len(nrow(dat)), as.character(dat$habitat))
 
   purrr::map_dfr(names(idx_by_habitat), function(hab_name) {
     idx <- idx_by_habitat[[hab_name]]
-    y_obs <- dat$prop_raw[idx]
+    y_obs <- as.numeric(dat$prop_raw[idx])
     yrep_h <- yrep_prop[, idx, drop = FALSE]
     pred_means <- rowMeans(yrep_h)
     pred_sds <- apply(yrep_h, 1, sd)
@@ -146,7 +177,8 @@ make_fit_summary <- function(model_obj, model_name, dat) {
   })
 }
 
-make_prediction_outputs <- function(model_obj, model_name, dat, max_h) {
+make_prediction_outputs <- function(model_obj, model_name, dat, max_h, file_stem = model_name) {
+  dat <- prepare_model_data(dat, max_h = max_h)
   representative_trials <- as.integer(round(median(dat$num_cells)))
   newdata <- tibble::tibble(
     habitat = factor(
@@ -157,7 +189,15 @@ make_prediction_outputs <- function(model_obj, model_name, dat, max_h) {
     height_filt = max_h
   )
 
-  epreds_counts <- posterior_epred(model_obj, newdata = newdata)
+  if ("height_sc" %in% names(dat)) {
+    newdata <- newdata %>% mutate(height_sc = unique(dat$height_sc)[1])
+  }
+
+  if ("ID" %in% names(dat)) {
+    newdata <- newdata %>% mutate(ID = dat$ID[1])
+  }
+
+  epreds_counts <- posterior_epred(model_obj, newdata = newdata, re_formula = NA)
   epreds_prop <- epreds_counts / representative_trials
 
   pred_summary <- as.data.frame(epreds_prop) %>%
@@ -187,8 +227,8 @@ make_prediction_outputs <- function(model_obj, model_name, dat, max_h) {
     left_join(newdata %>% mutate(obs_id = row_number()), by = "obs_id") %>%
     select(draw, habitat, height_filt, estimate)
 
-  summary_stem <- paste0("nature_megatrees_prediction_summary_", max_h, "m")
-  draws_stem <- paste0("nature_megatrees_habitat_draws_", max_h, "m")
+  summary_stem <- paste0(file_stem, "_prediction_summary")
+  draws_stem <- paste0(file_stem, "_habitat_draws")
 
   write.csv(
     pred_summary,
@@ -231,7 +271,7 @@ fit_one_threshold <- function(max_h) {
     iter = fit_iter,
     warmup = fit_warmup,
     cores = fit_cores,
-    seed = 2000 + max_h,
+    seed = 2002,
     backend = "cmdstanr",
     control = common_ctrl
   )
@@ -252,57 +292,163 @@ fit_one_threshold <- function(max_h) {
   )
 }
 
-threshold_results <- purrr::map(height_thresholds, fit_one_threshold)
-fit_summaries_all <- purrr::map_dfr(threshold_results, "fit_summary")
-pred_summaries_all <- purrr::map_dfr(threshold_results, "pred_summary")
-epreds_long_all <- purrr::map_dfr(threshold_results, "epreds_long")
+if (run_full_refits) {
+  threshold_results <- purrr::map(height_thresholds, fit_one_threshold)
+  fit_summaries_all <- purrr::map_dfr(threshold_results, "fit_summary")
+  pred_summaries_all <- purrr::map_dfr(threshold_results, "pred_summary")
+  epreds_long_all <- purrr::map_dfr(threshold_results, "epreds_long")
 
-write.csv(
-  fit_summaries_all,
-  nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.csv"),
-  row.names = FALSE
-)
-saveRDS(
-  fit_summaries_all,
-  nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.rds")
+  write.csv(
+    fit_summaries_all,
+    nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.csv"),
+    row.names = FALSE
+  )
+  saveRDS(
+    fit_summaries_all,
+    nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.rds")
+  )
+
+  write.csv(
+    pred_summaries_all,
+    nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.csv"),
+    row.names = FALSE
+  )
+  saveRDS(
+    pred_summaries_all,
+    nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.rds")
+  )
+  saveRDS(
+    epreds_long_all,
+    nr2_output_path("full_nature_megatrees_habitat_draws_all_thresholds.rds")
+  )
+
+  prediction_plot <- pred_summaries_all %>%
+    mutate(height_filt = factor(height_filt, levels = height_thresholds)) %>%
+    ggplot(aes(x = habitat, y = mean)) +
+    geom_col(fill = "grey60", width = 0.7) +
+    geom_errorbar(aes(ymin = lower95, ymax = upper95), width = 0.2, linewidth = 0.5) +
+    geom_errorbar(aes(ymin = lower80, ymax = upper80), width = 0.35, linewidth = 0.9) +
+    facet_wrap(~ height_filt, scales = "free_y") +
+    labs(
+      y = "Proportion of canopy > height threshold",
+      x = "Habitat type"
+    ) +
+    theme_minimal(base_size = 14)
+
+  ggsave(
+    filename = file.path(nr2_config$figures_dir, "nature_megatrees_predictions_by_threshold.pdf"),
+    plot = prediction_plot,
+    width = 11,
+    height = 6,
+    units = "in"
+  )
+
+  message("Full Nature megatree models complete.")
+  message("Check Outputs/NR2/models for threshold-specific model files.")
+  message("Check Outputs/NR2/figures for threshold-specific PPC PDFs.")
+  message("Check Outputs/NR2/figures/nature_megatrees_predictions_by_threshold.pdf for habitat predictions across thresholds.")
+} else {
+  message("Skipping full threshold refits.")
+}
+
+# -----------------------------
+# Rebuild outputs from saved nature_megatrees models
+# -----------------------------
+existing_model_specs <- tibble::tribble(
+  ~height_filt, ~model_label, ~model_file,
+  45, "nature_megatrees_zibb_45m", file.path(nr2_config$models_dir, "nature_megatrees_zibb_45m.rds"),
+  50, "nature_megatrees_zibb_50m", file.path(nr2_config$models_dir, "nature_megatrees_zibb_50m.rds"),
+  55, "nature_megatrees_zibb_55m", file.path(nr2_config$models_dir, "nature_megatrees_zibb_55m.rds")
 )
 
-write.csv(
-  pred_summaries_all,
-  nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.csv"),
-  row.names = FALSE
-)
-saveRDS(
-  pred_summaries_all,
-  nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.rds")
-)
-saveRDS(
-  epreds_long_all,
-  nr2_output_path("full_nature_megatrees_habitat_draws_all_thresholds.rds")
-)
+run_existing_model_check <- function(height_filt, model_label, model_file) {
+  if (!file.exists(model_file)) {
+    stop("Expected model file not found: ", model_file)
+  }
 
-prediction_plot <- pred_summaries_all %>%
-  mutate(height_filt = factor(height_filt, levels = height_thresholds)) %>%
-  ggplot(aes(x = habitat, y = mean)) +
-  geom_col(fill = "grey60", width = 0.7) +
-  geom_errorbar(aes(ymin = lower95, ymax = upper95), width = 0.2, linewidth = 0.5) +
-  geom_errorbar(aes(ymin = lower80, ymax = upper80), width = 0.35, linewidth = 0.9) +
-  facet_wrap(~ height_filt, scales = "free_y") +
-  labs(
-    y = "Proportion of canopy > height threshold",
-    x = "Habitat type"
-  ) +
-  theme_minimal(base_size = 14)
+  message("Generating PPCs and predictions for saved model ", model_label)
+  model_obj <- readRDS(model_file)
+  dat <- if (!is.null(model_obj$data)) {
+    tibble::as_tibble(model_obj$data)
+  } else {
+    build_threshold_data(height_filt)
+  }
+  dat <- prepare_model_data(dat, max_h = height_filt)
 
-ggsave(
-  filename = file.path(nr2_config$figures_dir, "nature_megatrees_predictions_by_threshold.pdf"),
-  plot = prediction_plot,
-  width = 11,
-  height = 6,
-  units = "in"
-)
+  make_ppc_pdf(model_obj, model_label, dat)
+  fit_summary <- make_fit_summary(model_obj, model_label, dat)
+  prediction_outputs <- make_prediction_outputs(
+    model_obj,
+    model_label,
+    dat,
+    height_filt
+  )
 
-message("Full Nature megatree models complete.")
-message("Check Outputs/NR2/models for threshold-specific model files.")
-message("Check Outputs/NR2/figures for threshold-specific PPC PDFs.")
-message("Check Outputs/NR2/figures/nature_megatrees_predictions_by_threshold.pdf for habitat predictions across thresholds.")
+  list(
+    fit_summary = fit_summary,
+    pred_summary = prediction_outputs$pred_summary,
+    epreds_long = prediction_outputs$epreds_long
+  )
+}
+
+if (run_selected_existing_model_check) {
+  existing_model_results <- purrr::pmap(
+    existing_model_specs,
+    run_existing_model_check
+  )
+
+  existing_fit_summaries <- purrr::map_dfr(existing_model_results, "fit_summary")
+  existing_pred_summaries <- purrr::map_dfr(existing_model_results, "pred_summary")
+  existing_epreds_long <- purrr::map_dfr(existing_model_results, "epreds_long")
+
+  write.csv(
+    existing_fit_summaries,
+    nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.csv"),
+    row.names = FALSE
+  )
+  saveRDS(
+    existing_fit_summaries,
+    nr2_output_path("full_nature_megatrees_model_fit_summary_by_habitat.rds")
+  )
+  write.csv(
+    existing_pred_summaries,
+    nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.csv"),
+    row.names = FALSE
+  )
+  saveRDS(
+    existing_pred_summaries,
+    nr2_output_path("full_nature_megatrees_prediction_summary_by_habitat.rds")
+  )
+  saveRDS(
+    existing_epreds_long,
+    nr2_output_path("full_nature_megatrees_habitat_draws_all_thresholds.rds")
+  )
+
+  selected_prediction_plot <- existing_pred_summaries %>%
+    mutate(height_filt = factor(height_filt, levels = height_thresholds)) %>%
+    ggplot(aes(x = habitat, y = mean)) +
+    geom_col(fill = "grey60", width = 0.7) +
+    geom_errorbar(aes(ymin = lower95, ymax = upper95), width = 0.2, linewidth = 0.5) +
+    geom_errorbar(aes(ymin = lower80, ymax = upper80), width = 0.35, linewidth = 0.9) +
+    facet_wrap(~ height_filt, scales = "free_y") +
+    labs(
+      y = "Proportion of canopy > height threshold",
+      x = "Habitat type"
+    ) +
+    theme_minimal(base_size = 14)
+
+  ggsave(
+    filename = file.path(nr2_config$figures_dir, "nature_megatrees_predictions_by_threshold.pdf"),
+    plot = selected_prediction_plot,
+    width = 11,
+    height = 6,
+    units = "in"
+  )
+
+  message("Saved-model Nature megatree outputs complete.")
+  message("Check Outputs/NR2/models for threshold-specific model files.")
+  message("Check Outputs/NR2/figures for threshold-specific PPC PDFs.")
+  message("Check Outputs/NR2/figures/nature_megatrees_predictions_by_threshold.pdf for habitat predictions across thresholds.")
+} else {
+  message("Skipping saved-model output rebuild.")
+}
